@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     process.env.SYSTEM_PROMPT ||
     'You are a helpful, direct, and intelligent AI assistant. Be concise but thorough. Use markdown formatting for code, lists, and structure when appropriate.';
 
-  const model = process.env.AI_MODEL || 'grok-beta';
+  const model = process.env.AI_MODEL || 'grok-3';
 
   // Cast to typed messages — role values 'user'/'assistant'/'system' are safe
   const messages: ChatCompletionMessageParam[] = [
