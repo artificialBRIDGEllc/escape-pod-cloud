@@ -11,13 +11,180 @@ interface Message {
   error?: boolean;
 }
 
+// ─── Particle Background ──────────────────────────────────────────────────────
+function ParticleField() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const mouseRef = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d')!;
+
+    // Particle config
+    const COUNT = 55;
+    const CONNECT_DIST = 130;
+    const MOUSE_DIST = 160;
+    const MOUSE_REPEL = 0.018; // gentle push away from cursor
+    const SPEED = 0.28;
+
+    interface Particle {
+      x: number; y: number;
+      vx: number; vy: number;
+      r: number; opacity: number;
+    }
+
+    let particles: Particle[] = [];
+    let W = 0, H = 0;
+    let raf: number;
+
+    const resize = () => {
+      W = canvas.width = window.innerWidth;
+      H = canvas.height = window.innerHeight;
+    };
+    resize();
+    window.addEventListener('resize', resize);
+
+    // Init particles
+    const init = () => {
+      particles = Array.from({ length: COUNT }, () => ({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        vx: (Math.random() - 0.5) * SPEED,
+        vy: (Math.random() - 0.5) * SPEED,
+        r: 0.8 + Math.random() * 1.4,
+        opacity: 0.25 + Math.random() * 0.35,
+      }));
+    };
+    init();
+
+    const draw = () => {
+      ctx.clearRect(0, 0, W, H);
+
+      const mx = mouseRef.current?.x ?? null;
+      const my = mouseRef.current?.y ?? null;
+
+      // Update + draw particles
+      for (const p of particles) {
+        // Mouse repel — gentle drift away
+        if (mx !== null && my !== null) {
+          const dx = p.x - mx;
+          const dy = p.y - my;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < MOUSE_DIST && dist > 0) {
+            const force = (1 - dist / MOUSE_DIST) * MOUSE_REPEL;
+            p.vx += (dx / dist) * force;
+            p.vy += (dy / dist) * force;
+          }
+        }
+
+        // Speed cap
+        const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+        if (speed > SPEED * 3) {
+          p.vx = (p.vx / speed) * SPEED * 3;
+          p.vy = (p.vy / speed) * SPEED * 3;
+        }
+
+        // Drift back toward base speed
+        p.vx *= 0.998;
+        p.vy *= 0.998;
+
+        p.x += p.vx;
+        p.y += p.vy;
+
+        // Wrap
+        if (p.x < -20) p.x = W + 20;
+        if (p.x > W + 20) p.x = -20;
+        if (p.y < -20) p.y = H + 20;
+        if (p.y > H + 20) p.y = -20;
+
+        // Draw dot
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(229,192,123,${p.opacity})`;
+        ctx.fill();
+      }
+
+      // Draw connecting lines between nearby particles
+      for (let i = 0; i < particles.length; i++) {
+        for (let j = i + 1; j < particles.length; j++) {
+          const dx = particles[i].x - particles[j].x;
+          const dy = particles[i].y - particles[j].y;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < CONNECT_DIST) {
+            const a = (1 - d / CONNECT_DIST) * 0.09;
+            ctx.beginPath();
+            ctx.moveTo(particles[i].x, particles[i].y);
+            ctx.lineTo(particles[j].x, particles[j].y);
+            ctx.strokeStyle = `rgba(229,192,123,${a})`;
+            ctx.lineWidth = 0.6;
+            ctx.stroke();
+          }
+        }
+      }
+
+      // Draw lines from mouse to nearby particles
+      if (mx !== null && my !== null) {
+        for (const p of particles) {
+          const dx = p.x - mx;
+          const dy = p.y - my;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < MOUSE_DIST) {
+            const a = (1 - d / MOUSE_DIST) * 0.18;
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y);
+            ctx.lineTo(mx, my);
+            ctx.strokeStyle = `rgba(229,192,123,${a})`;
+            ctx.lineWidth = 0.5;
+            ctx.stroke();
+          }
+        }
+        // Mouse dot
+        ctx.beginPath();
+        ctx.arc(mx, my, 2, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(229,192,123,0.2)';
+        ctx.fill();
+      }
+
+      raf = requestAnimationFrame(draw);
+    };
+    draw();
+
+    const onMove = (e: MouseEvent) => {
+      mouseRef.current = { x: e.clientX, y: e.clientY };
+    };
+    const onLeave = () => { mouseRef.current = null; };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseleave', onLeave);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', resize);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseleave', onLeave);
+    };
+  }, []);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        width: '100%',
+        height: '100%',
+        zIndex: 0,
+        pointerEvents: 'none',
+      }}
+    />
+  );
+}
+
 // ─── Minimal markdown renderer (no external deps) ────────────────────────────
 function renderMarkdown(text: string): string {
-  // Split by code blocks first to avoid processing code content
   const parts = text.split(/(```[\w]*\n?[\s\S]*?```)/g);
   const processed = parts.map((part, i) => {
     if (i % 2 === 1) {
-      // Code block — extract language and content
       const match = part.match(/```[\w]*\n?([\s\S]*?)```/);
       const code = match ? match[1] : part;
       return '<pre><code>' + code.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</code></pre>';
@@ -37,13 +204,7 @@ function renderMarkdown(text: string): string {
 }
 
 // ─── Message bubble ───────────────────────────────────────────────────────────
-function Bubble({
-  msg,
-  streaming,
-}: {
-  msg: Message;
-  streaming: boolean;
-}) {
+function Bubble({ msg, streaming }: { msg: Message; streaming: boolean }) {
   const [copied, setCopied] = useState(false);
   const isUser = msg.role === 'user';
 
@@ -68,30 +229,18 @@ function Bubble({
   };
 
   return (
-    <div
-      className={`flex gap-3 slide-up ${isUser ? 'flex-row-reverse' : 'flex-row'}`}
-    >
-      {/* Avatar */}
-      <div
-        style={{
-          flexShrink: 0,
-          width: 28,
-          height: 28,
-          borderRadius: '50%',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: 11,
-          fontWeight: 700,
-          background: isUser ? '#E5C07B' : 'rgba(10,13,20,0.9)',
-          border: isUser ? 'none' : '1px solid rgba(229,192,123,0.2)',
-          color: isUser ? '#030407' : '#E5C07B',
-        }}
-      >
+    <div className={`flex gap-3 slide-up ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+      <div style={{
+        flexShrink: 0, width: 28, height: 28, borderRadius: '50%',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 11, fontWeight: 700,
+        background: isUser ? '#E5C07B' : 'rgba(10,13,20,0.9)',
+        border: isUser ? 'none' : '1px solid rgba(229,192,123,0.2)',
+        color: isUser ? '#030407' : '#E5C07B',
+      }}>
         {isUser ? 'U' : 'AI'}
       </div>
 
-      {/* Content */}
       <div className="group flex flex-col" style={{ maxWidth: '80%', alignItems: isUser ? 'flex-end' : 'flex-start' }}>
         <div style={bubbleStyle}>
           {msg.error && (
@@ -100,40 +249,21 @@ function Bubble({
               <span>Error — check API key in environment variables</span>
             </div>
           )}
-
           {msg.role === 'assistant' ? (
-            <div
-              className="msg-content"
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
-            />
+            <div className="msg-content" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
           ) : (
             <span style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</span>
           )}
-
-          {/* Streaming cursor */}
           {streaming && (
-            <span
-              className="blink"
-              style={{
-                display: 'inline-block',
-                width: 7,
-                height: 14,
-                background: '#E5C07B',
-                borderRadius: 1,
-                marginLeft: 2,
-                verticalAlign: 'middle',
-              }}
-            />
+            <span className="blink" style={{
+              display: 'inline-block', width: 7, height: 14,
+              background: '#E5C07B', borderRadius: 1, marginLeft: 2, verticalAlign: 'middle',
+            }} />
           )}
         </div>
-
-        {/* Copy button */}
         {!streaming && msg.content && (
-          <button
-            onClick={copy}
-            className="opacity-0 group-hover:opacity-100 transition-opacity mt-1 flex items-center gap-1"
-            style={{ fontSize: 11, color: 'rgba(247,247,245,0.35)', cursor: 'pointer' }}
-          >
+          <button onClick={copy} className="opacity-0 group-hover:opacity-100 transition-opacity mt-1 flex items-center gap-1"
+            style={{ fontSize: 11, color: 'rgba(247,247,245,0.35)', cursor: 'pointer' }}>
             {copied ? <Check size={10} /> : <Copy size={10} />}
             <span>{copied ? 'Copied' : 'Copy'}</span>
           </button>
@@ -154,7 +284,7 @@ export default function ChatPage() {
   const abortRef = useRef<AbortController | null>(null);
 
   const appName = process.env.NEXT_PUBLIC_APP_NAME || 'AI Escape Pod';
-  const modelLabel = process.env.NEXT_PUBLIC_MODEL_DISPLAY || 'grok-beta';
+  const modelLabel = process.env.NEXT_PUBLIC_MODEL_DISPLAY || 'grok-3';
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -170,7 +300,6 @@ export default function ChatPage() {
     setInput('');
     setLoading(true);
 
-    // Reset textarea height
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
     const aid = `a-${Date.now() + 1}`;
@@ -256,35 +385,28 @@ export default function ChatPage() {
     ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
   };
 
-  // ── UI ─────────────────────────────────────────────────────────────────────
   return (
-    <div className="grid-bg flex flex-col" style={{ height: '100dvh', background: '#030407' }}>
+    <div className="grid-bg flex flex-col" style={{ height: '100dvh', background: '#030407', position: 'relative' }}>
+
+      {/* ── PARTICLE BACKGROUND ── */}
+      <ParticleField />
+
       {/* Header */}
-      <header
-        style={{
-          flexShrink: 0,
-          padding: '14px 24px',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
-          background: 'rgba(10,13,20,0.92)',
-          backdropFilter: 'blur(12px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}
-      >
+      <header style={{
+        position: 'relative', zIndex: 10,
+        flexShrink: 0, padding: '14px 24px',
+        borderBottom: '1px solid rgba(255,255,255,0.06)',
+        background: 'rgba(10,13,20,0.88)',
+        backdropFilter: 'blur(16px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div
-            style={{
-              width: 34,
-              height: 34,
-              borderRadius: 10,
-              background: 'rgba(229,192,123,0.08)',
-              border: '1px solid rgba(229,192,123,0.18)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
+          <div style={{
+            width: 34, height: 34, borderRadius: 10,
+            background: 'rgba(229,192,123,0.08)',
+            border: '1px solid rgba(229,192,123,0.18)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
             <Zap size={16} style={{ color: '#E5C07B' }} />
           </div>
           <div>
@@ -293,17 +415,13 @@ export default function ChatPage() {
                 <span style={{ fontWeight: 400 }}>artificial</span>
                 <span style={{ color: '#E5C07B' }}>BRIDGE</span>
               </span>
-              <span
-                style={{
-                  fontSize: 11,
-                  padding: '1px 8px',
-                  borderRadius: 999,
-                  background: 'rgba(229,192,123,0.07)',
-                  border: '1px solid rgba(229,192,123,0.14)',
-                  color: 'rgba(229,192,123,0.65)',
-                  fontFamily: 'JetBrains Mono, monospace',
-                }}
-              >
+              <span style={{
+                fontSize: 11, padding: '1px 8px', borderRadius: 999,
+                background: 'rgba(229,192,123,0.07)',
+                border: '1px solid rgba(229,192,123,0.14)',
+                color: 'rgba(229,192,123,0.65)',
+                fontFamily: 'JetBrains Mono, monospace',
+              }}>
                 {modelLabel}
               </span>
             </div>
@@ -314,21 +432,13 @@ export default function ChatPage() {
         </div>
 
         {messages.length > 0 && (
-          <button
-            onClick={clear}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 5,
-              fontSize: 12,
-              color: 'rgba(247,247,245,0.4)',
-              background: 'transparent',
-              border: '1px solid rgba(255,255,255,0.06)',
-              borderRadius: 8,
-              padding: '5px 10px',
-              cursor: 'pointer',
-            }}
-          >
+          <button onClick={clear} style={{
+            display: 'flex', alignItems: 'center', gap: 5,
+            fontSize: 12, color: 'rgba(247,247,245,0.4)',
+            background: 'transparent',
+            border: '1px solid rgba(255,255,255,0.06)',
+            borderRadius: 8, padding: '5px 10px', cursor: 'pointer',
+          }}>
             <Trash2 size={11} />
             Clear
           </button>
@@ -336,32 +446,21 @@ export default function ChatPage() {
       </header>
 
       {/* Messages */}
-      <main style={{ flex: 1, overflowY: 'auto', padding: '24px 16px' }}>
+      <main style={{ position: 'relative', zIndex: 10, flex: 1, overflowY: 'auto', padding: '24px 16px' }}>
         <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
           {messages.length === 0 && (
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                paddingTop: 80,
-                textAlign: 'center',
-              }}
-            >
-              <div
-                style={{
-                  width: 56,
-                  height: 56,
-                  borderRadius: 16,
-                  background: 'rgba(229,192,123,0.06)',
-                  border: '1px solid rgba(229,192,123,0.14)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginBottom: 20,
-                }}
-              >
+            <div style={{
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center',
+              paddingTop: 80, textAlign: 'center',
+            }}>
+              <div style={{
+                width: 56, height: 56, borderRadius: 16,
+                background: 'rgba(229,192,123,0.06)',
+                border: '1px solid rgba(229,192,123,0.14)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                marginBottom: 20,
+              }}>
                 <Zap size={24} style={{ color: '#E5C07B' }} />
               </div>
               <h2 style={{ fontSize: 22, fontWeight: 600, color: '#E5C07B', marginBottom: 10 }}>
@@ -383,27 +482,20 @@ export default function ChatPage() {
       </main>
 
       {/* Input */}
-      <footer
-        style={{
-          flexShrink: 0,
-          padding: '16px',
-          borderTop: '1px solid rgba(255,255,255,0.06)',
-          background: 'rgba(10,13,20,0.92)',
-          backdropFilter: 'blur(12px)',
-        }}
-      >
+      <footer style={{
+        position: 'relative', zIndex: 10,
+        flexShrink: 0, padding: '16px',
+        borderTop: '1px solid rgba(255,255,255,0.06)',
+        background: 'rgba(10,13,20,0.88)',
+        backdropFilter: 'blur(16px)',
+      }}>
         <div style={{ maxWidth: 720, margin: '0 auto' }}>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'flex-end',
-              gap: 10,
-              background: 'rgba(10,13,20,0.8)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: 16,
-              padding: '10px 12px 10px 16px',
-            }}
-          >
+          <div style={{
+            display: 'flex', alignItems: 'flex-end', gap: 10,
+            background: 'rgba(10,13,20,0.8)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: 16, padding: '10px 12px 10px 16px',
+          }}>
             <textarea
               ref={textareaRef}
               value={input}
@@ -413,16 +505,10 @@ export default function ChatPage() {
               rows={1}
               disabled={loading}
               style={{
-                flex: 1,
-                resize: 'none',
-                background: 'transparent',
-                border: 'none',
-                outline: 'none',
-                color: '#F7F7F5',
-                fontSize: 14,
-                lineHeight: '1.6',
-                fontFamily: 'Inter, sans-serif',
-                maxHeight: 140,
+                flex: 1, resize: 'none', background: 'transparent',
+                border: 'none', outline: 'none', color: '#F7F7F5',
+                fontSize: 14, lineHeight: '1.6',
+                fontFamily: 'Inter, sans-serif', maxHeight: 140,
               }}
               autoFocus
             />
@@ -430,16 +516,11 @@ export default function ChatPage() {
               onClick={loading ? stop : send}
               disabled={!loading && !input.trim()}
               style={{
-                flexShrink: 0,
-                width: 34,
-                height: 34,
-                borderRadius: 10,
+                flexShrink: 0, width: 34, height: 34, borderRadius: 10,
                 background: loading || input.trim() ? '#E5C07B' : 'rgba(229,192,123,0.12)',
                 border: 'none',
                 cursor: !loading && !input.trim() ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}
             >
               {loading
