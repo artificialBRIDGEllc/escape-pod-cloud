@@ -44,3 +44,13 @@ XAI_API_KEY=none
 API_BASE_URL=http://localhost:11434/v1
 AI_MODEL=deepseek-r1:8b
 ```
+
+## Quality Gate
+
+This repo includes a dependency-free AI gateway suite that can run before installing Next.js dependencies:
+
+```bash
+npm test
+```
+
+The suite locks chat message normalization, runtime option bounds, and provider configuration validation.
